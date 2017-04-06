@@ -19,49 +19,53 @@ func parse(tmpl []byte) *token {
 	indexes := reTag.FindAllIndex(tmpl, -1)
 	// create token
 	var tokens []*token
-	var tokenStack [][]*token
+	var ts [][]*token
 	left := 0
 	right := len(tmpl)
 	for _, idx := range indexes {
 		if left < idx[0] {
 			// add literal token
-			t := newToken(LITERAL, "",
-				segment{left, idx[0] - 1, tmpl[left : idx[0]-1]},
-				false,
-				nil,
-			)
+			t := &token{
+				typ:  LITERAL,
+				body: segment{left, idx[0] - 1, tmpl[left : idx[0]-1]},
+			}
 			tokens = append(tokens, t)
 		}
 
-		var t *token
-		results := reTag.FindSubmatch(tmpl[idx[0]:idx[1]])
-		_, prefix, key := results[0], results[1], results[2]
+		tag := tmpl[idx[0]:idx[1]]
+		results := reTag.FindSubmatch(tag)
+		_, prefix, key, suffix := results[0], results[1], results[2], results[3]
+		seg := segment{idx[0], idx[1], tag}
 
+		var t *token
 		switch string(prefix) {
 		case "":
 			{
-				t = newToken(VARIABLE, string(key),
-					segment{idx[0], idx[1], tmpl[idx[0]:idx[1]]},
-					false,
-					nil,
-				)
+				t = &token{
+					typ:    VARIABLE,
+					key:    string(key),
+					suffix: string(suffix),
+					body:   seg,
+				}
 				tokens = append(tokens, t)
 			}
 		case "#":
 			{
-				t = newToken(SECTION, string(key),
-					segment{idx[0], idx[1], tmpl[idx[0]:idx[1]]},
-					false,
-					nil,
-				)
+				t = &token{
+					typ:    SECTION,
+					key:    string(key),
+					suffix: string(suffix),
+					body:   seg,
+				}
 				tokens = append(tokens, t)
 				// push to stack
-				tokenStack = append(tokenStack, tokens)
+				ts = append(ts, tokens)
+				// reset token inside section
 				tokens = nil
 			}
 		case "/":
 			{
-				top := tokenStack[len(tokenStack)-1]
+				top := ts[len(ts)-1]
 				sectionToken := top[len(top)-1]
 
 				if sectionToken.key == string(key) {
@@ -71,21 +75,32 @@ func parse(tmpl []byte) *token {
 				}
 
 				// pop stack
-				tokens = top
-				tokenStack = tokenStack[0 : len(tokenStack)-1]
+				tokens, ts = ts[len(ts)-1], ts[:len(ts)-1]
 			}
-
+		case ">":
+			{
+				t = &token{
+					typ:    PARTIAL,
+					key:    string(key),
+					suffix: string(suffix),
+					body:   seg,
+				}
+				tokens = append(tokens, t)
+			}
 		}
 		left = idx[1]
 	}
+	// dont forget last literal token
 	if left < right {
-		t := newToken(LITERAL, "",
-			segment{left, right, tmpl[left:right]},
-			false,
-			nil,
-		)
+		t := &token{
+			typ:  LITERAL,
+			body: segment{left, right, tmpl[left:right]},
+		}
 		tokens = append(tokens, t)
 	}
 
-	return newToken(ROOT, "", segment{}, false, tokens)
+	return &token{
+		typ:      ROOT,
+		children: tokens,
+	}
 }

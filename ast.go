@@ -3,6 +3,7 @@ package emus
 import (
 	"bytes"
 	"fmt"
+	"strings"
 )
 
 type tokenType int
@@ -38,43 +39,27 @@ func (c *context) put(key string, val interface{}) {
 	c.m[key] = val
 }
 
-func (c *context) get(key string, recursive bool) (interface{}, bool) {
-	cur := c
-	if recursive {
-		for cur != nil {
-			if val, ok := cur.m[key]; ok {
-				return val, ok
-			}
-			cur = c.parent
+func (c *context) get(path string) (interface{}, bool) {
+	cur := c.m
+	keys := strings.Split(path, ".")
+	for _, key := range keys[:len(keys)-1] {
+		v, ok := cur[key]
+		if ok {
+			cur = v.(map[string]interface{})
+		} else {
+			return nil, false
 		}
-		return nil, false
-	} else {
-		val, ok := cur.m[key]
-		return val, ok
 	}
+	v, ok := cur[keys[len(keys)-1]]
+	return v, ok
 }
 
 type token struct {
 	key      string // {{ name }} <--- name
+	suffix   string
 	typ      tokenType
 	body     segment
-	escape   bool
 	children []*token
-}
-
-func newToken(
-	typ tokenType,
-	key string,
-	body segment,
-	escape bool,
-	children []*token) *token {
-	return &token{
-		key:      key,
-		typ:      typ,
-		body:     body,
-		escape:   escape,
-		children: children,
-	}
 }
 
 func (t *token) String() string {
@@ -106,17 +91,19 @@ func (t *token) renderLiteral(ctx *context) []byte {
 }
 
 func (t *token) renderVarible(ctx *context) []byte {
-	if val, ok := ctx.get(t.key, true); ok {
+	if val, ok := ctx.get(t.key); ok {
 		return val.([]byte)
 	}
 	return nil
 }
 
 func (t *token) renderSection(ctx *context) []byte {
+	// TODO
 	var ret [][]byte
 
 	for _, child := range t.children {
-		ret = append(ret, child.render(ctx))
+		c := newContext(ctx)
+		ret = append(ret, child.render(c))
 	}
 	return bytes.Join(ret, []byte(""))
 }
