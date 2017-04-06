@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+
+	"github.com/ngaut/log"
 )
 
 type tokenType int
@@ -25,27 +27,30 @@ type segment struct {
 
 type context struct {
 	parent *context
-	m      map[string]interface{}
+	v      interface{}
 }
 
-func newContext(parent *context) *context {
+func newContext(parent *context, v interface{}) *context {
 	return &context{
 		parent: parent,
-		m:      make(map[string]interface{}),
+		v:      v,
 	}
 }
 
-func (c *context) put(key string, val interface{}) {
-	c.m[key] = val
-}
-
 func (c *context) get(path string) (interface{}, bool) {
-	cur := c.m
+	// TODO: what about array type?
+	cur, ok := c.v.(map[string]interface{})
+	if !ok {
+		return nil, false
+	}
 	keys := strings.Split(path, ".")
 	for _, key := range keys[:len(keys)-1] {
 		v, ok := cur[key]
 		if ok {
-			cur = v.(map[string]interface{})
+			cur, ok = v.(map[string]interface{})
+			if !ok {
+				return nil, false
+			}
 		} else {
 			return nil, false
 		}
@@ -92,18 +97,40 @@ func (t *token) renderLiteral(ctx *context) []byte {
 
 func (t *token) renderVarible(ctx *context) []byte {
 	if val, ok := ctx.get(t.key); ok {
-		return val.([]byte)
+		switch vv := val.(type) {
+		case string:
+			return []byte(vv)
+		case int64:
+			return []byte(fmt.Sprintf("%lld", vv))
+		case float64:
+			return []byte(fmt.Sprintf("%llf", vv))
+		default:
+			log.Warn("unsupported type")
+		}
 	}
 	return nil
 }
 
 func (t *token) renderSection(ctx *context) []byte {
-	// TODO
+	val, ok := ctx.get(t.key)
+	if !ok {
+		log.Warn("no such key")
+		return nil
+	}
 	var ret [][]byte
 
-	for _, child := range t.children {
-		c := newContext(ctx)
-		ret = append(ret, child.render(c))
+	lst, ok := val.([]interface{})
+	if !ok {
+		log.Warn("not array type")
+		return nil
+	}
+
+	for _, item := range lst {
+		// assert val is a list
+		c := newContext(ctx, item)
+		for _, child := range t.children {
+			ret = append(ret, child.render(c))
+		}
 	}
 	return bytes.Join(ret, []byte(""))
 }

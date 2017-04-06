@@ -11,6 +11,7 @@ func delimiterToRegexp(left, right string) *regexp.Regexp {
 }
 
 // returns the token tree
+// xxx{}xxxx{}xxx{}
 func parse(tmpl []byte) *token {
 	// TODO: use default tag
 	reTag := delimiterToRegexp("{{", "}}")
@@ -27,7 +28,7 @@ func parse(tmpl []byte) *token {
 			// add literal token
 			t := &token{
 				typ:  LITERAL,
-				body: segment{left, idx[0] - 1, tmpl[left : idx[0]-1]},
+				body: segment{left, idx[0], tmpl[left:idx[0]]},
 			}
 			tokens = append(tokens, t)
 		}
@@ -71,7 +72,7 @@ func parse(tmpl []byte) *token {
 				if sectionToken.key == string(key) {
 					sectionToken.children = tokens
 				} else {
-					log.Warn("section mismatch")
+					log.Warn("section mismatch", sectionToken.key, string(key))
 				}
 
 				// pop stack
